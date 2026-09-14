@@ -7,6 +7,13 @@ import { TURSO_DATABASE_URL } from "@/lib/config";
 
 type AppDb = LibSQLDatabase<typeof schema>;
 
+function isNextBuild() {
+  return (
+    process.env.NEXT_PHASE === "phase-production-build" ||
+    process.env.NEXT_PHASE === "phase-export"
+  );
+}
+
 function resolveLocalFileUrl() {
   const abs = path.join(process.cwd(), "data", "orify.db");
   const dir = path.dirname(abs);
@@ -18,11 +25,10 @@ function makeClient(): Client {
   const isProd = process.env.NODE_ENV === "production";
   const authToken = process.env.DATABASE_AUTH_TOKEN?.trim();
 
-  // Production → Turso (URL hardcoded, token from env)
   if (isProd) {
     if (!authToken) {
       throw new Error(
-        "DATABASE_AUTH_TOKEN is required in production (Turso token)",
+        "DATABASE_AUTH_TOKEN is required in production (Turso token). Set it in Vercel → Settings → Environment Variables, then Redeploy.",
       );
     }
     return createClient({
@@ -31,7 +37,6 @@ function makeClient(): Client {
     });
   }
 
-  // Optional: point local at Turso by setting DATABASE_URL + token
   const override = process.env.DATABASE_URL?.trim();
   if (override?.startsWith("libsql:") || override?.startsWith("https:")) {
     return createClient({
@@ -43,33 +48,17 @@ function makeClient(): Client {
   return createClient({ url: resolveLocalFileUrl() });
 }
 
-let _client: Client | null = null;
-let _db: AppDb | null = null;
-
-function getClient(): Client {
-  if (!_client) _client = makeClient();
-  return _client;
+/**
+ * `next build` runs with NODE_ENV=production — skip connecting (stubs).
+ * Runtime (Vercel serverless / next start) creates a real client + Drizzle.
+ */
+function init(): { client: Client; db: AppDb } {
+  const client = makeClient();
+  const db = drizzle(client, { schema });
+  return { client, db };
 }
 
-function getDb(): AppDb {
-  if (!_db) _db = drizzle(getClient(), { schema });
-  return _db;
-}
+const pair = isNextBuild() ? null : init();
 
-/** Lazy — safe to import during `next build` (no connection until first use). */
-export const client = new Proxy({} as Client, {
-  get(_target, prop, receiver) {
-    const c = getClient();
-    const value = Reflect.get(c, prop, receiver);
-    return typeof value === "function" ? value.bind(c) : value;
-  },
-});
-
-/** Lazy — safe to import during `next build` (no connection until first use). */
-export const db = new Proxy({} as AppDb, {
-  get(_target, prop, receiver) {
-    const d = getDb();
-    const value = Reflect.get(d, prop, receiver);
-    return typeof value === "function" ? value.bind(d) : value;
-  },
-});
+export const client = pair?.client as Client;
+export const db = pair?.db as AppDb;
