@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #f6f4f0;
+  --color-surface: #ffffff;
+  --color-ink: #141414;
+  --color-muted: #6b675f;
+  --color-line: #e7e2d9;
+  --color-accent: #c81e3a;
+  --color-accent-ink: #ffffff;
+  --color-ok: #0f7b4a;
+  --color-warn: #b45309;
+  --color-danger: #b42318;
+
+  --font-sans: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-arabic: var(--font-tajawal), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 16px;
+  --radius-control: 12px;
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  min-height: 100%;
+}
+
+html[lang="ar"] body,
+html[dir="rtl"] body {
+  font-family: var(--font-arabic);
+}
+
+html[lang="fr"] body,
+html[dir="ltr"] body {
+  font-family: var(--font-sans);
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Native dialog shop sheets */
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.8);
+}
