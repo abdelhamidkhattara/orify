@@ -4,6 +4,9 @@ import { getLocale, dirFor } from "@/lib/locale";
 import { getAppUrl } from "@/lib/env";
 import type { Metadata, Viewport } from "next";
 
+/** All routes need request-time DB/auth — never SSG against Turso at build. */
+export const dynamic = "force-dynamic";
+
 const dmSans = DM_Sans({
   subsets: ["latin"],
   variable: "--font-dm-sans",

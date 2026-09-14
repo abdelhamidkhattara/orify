@@ -1,9 +1,11 @@
 ﻿import { createClient, type Client } from "@libsql/client";
-import { drizzle } from "drizzle-orm/libsql";
+import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
 import * as schema from "./schema";
 import path from "path";
 import fs from "fs";
 import { TURSO_DATABASE_URL } from "@/lib/config";
+
+type AppDb = LibSQLDatabase<typeof schema>;
 
 function resolveLocalFileUrl() {
   const abs = path.join(process.cwd(), "data", "orify.db");
@@ -41,7 +43,33 @@ function makeClient(): Client {
   return createClient({ url: resolveLocalFileUrl() });
 }
 
-const client = makeClient();
+let _client: Client | null = null;
+let _db: AppDb | null = null;
 
-export const db = drizzle(client, { schema });
-export { client };
+function getClient(): Client {
+  if (!_client) _client = makeClient();
+  return _client;
+}
+
+function getDb(): AppDb {
+  if (!_db) _db = drizzle(getClient(), { schema });
+  return _db;
+}
+
+/** Lazy — safe to import during `next build` (no connection until first use). */
+export const client = new Proxy({} as Client, {
+  get(_target, prop, receiver) {
+    const c = getClient();
+    const value = Reflect.get(c, prop, receiver);
+    return typeof value === "function" ? value.bind(c) : value;
+  },
+});
+
+/** Lazy — safe to import during `next build` (no connection until first use). */
+export const db = new Proxy({} as AppDb, {
+  get(_target, prop, receiver) {
+    const d = getDb();
+    const value = Reflect.get(d, prop, receiver);
+    return typeof value === "function" ? value.bind(d) : value;
+  },
+});
