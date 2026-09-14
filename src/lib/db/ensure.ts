@@ -180,7 +180,22 @@ async function ensureSeedData() {
   const ownerHash = await hashPassword(ownerPass);
   const demoHash = await hashPassword(demoPass);
   const demoEnc = encryptPassword(demoPass);
-  const now = Date.now();
+  // Raw SQL integers use unix seconds (drizzle timestamp mode)
+  const now = Math.floor(Date.now() / 1000);
+
+  // Repair accidental ms timestamps from earlier seeds
+  await client.execute(
+    `UPDATE codes SET created_at = CAST(created_at / 1000 AS INTEGER) WHERE created_at > 10000000000`,
+  );
+  await client.execute(
+    `UPDATE codes SET claimed_at = CAST(claimed_at / 1000 AS INTEGER) WHERE claimed_at IS NOT NULL AND claimed_at > 10000000000`,
+  );
+  await client.execute(
+    `UPDATE shops SET created_at = CAST(created_at / 1000 AS INTEGER) WHERE created_at > 10000000000`,
+  );
+  await client.execute(
+    `UPDATE shops SET updated_at = CAST(updated_at / 1000 AS INTEGER) WHERE updated_at > 10000000000`,
+  );
 
   const owner = await client.execute(
     "SELECT id FROM owner_settings WHERE id = 'main'",
@@ -416,7 +431,7 @@ async function repairInvalidCodes() {
   }
 
   // Ensure two unused demo claim codes exist for local testing
-  const now = Date.now();
+  const now = Math.floor(Date.now() / 1000);
   for (const c of ["B892", "C345"]) {
     const ex = await client.execute({
       sql: `SELECT id FROM codes WHERE code = ? LIMIT 1`,
