@@ -13,9 +13,10 @@ export const PROD_QR_BASE_URL = "https://orify.vercel.app";
 export const TURSO_DATABASE_URL =
   "libsql://orify-hamidkhattara.aws-eu-west-1.turso.io";
 
-export const DEMO_PASSWORD = "sportif";
+/** Hardcoded passwords (product defaults) */
+export const DEMO_PASSWORD = "jarir";
+export const OWNER_PASSWORD = "owner123";
 
 /** Local-only defaults when env secrets are missing */
 export const DEV_SESSION_SECRET =
   "dev-session-secret-change-me-32chars!!";
-export const DEV_OWNER_BOOTSTRAP_PASSWORD = "owner123";

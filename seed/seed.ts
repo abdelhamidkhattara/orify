@@ -120,7 +120,7 @@ async function seed() {
   const now = Date.now();
   const ownerPass =
     process.env.OWNER_BOOTSTRAP_PASSWORD || "owner123";
-  const demoPass = process.env.DEMO_PASSWORD || "sportif";
+  const demoPass = process.env.DEMO_PASSWORD || "jarir";
 
   const existingOwner = await client.execute(
     "SELECT id FROM owner_settings WHERE id = 'main'",

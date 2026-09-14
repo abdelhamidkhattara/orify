@@ -165,27 +165,32 @@ async function migrate() {
     }
   }
 
-  // Auto-seed if empty
-  const r = await client.execute(
+  // Owner + DEMO must always exist (idempotent — fixes partial seeds)
+  await ensureSeedData();
+}
+
+async function ensureSeedData() {
+  const { hashPassword } = await import("../auth");
+  const { encryptPassword } = await import("../crypto");
+  const { THEME_PRESETS } = await import("./schema");
+  const { OWNER_PASSWORD, DEMO_PASSWORD } = await import("../config");
+
+  const ownerPass = OWNER_PASSWORD;
+  const demoPass = DEMO_PASSWORD;
+  const ownerHash = await hashPassword(ownerPass);
+  const demoHash = await hashPassword(demoPass);
+  const demoEnc = encryptPassword(demoPass);
+  const now = Date.now();
+
+  const owner = await client.execute(
     "SELECT id FROM owner_settings WHERE id = 'main'",
   );
-  if (r.rows.length === 0) {
-    const { hashPassword } = await import("../auth");
-    const { encryptPassword } = await import("../crypto");
-    const { THEME_PRESETS } = await import("./schema");
-
-    const { getOwnerBootstrapPassword, getDemoPassword } = await import(
-      "../env"
-    );
-    const ownerPass = getOwnerBootstrapPassword();
-    const demoPass = getDemoPassword();
-    const now = Date.now();
-
+  if (owner.rows.length === 0) {
     await client.execute({
       sql: `INSERT INTO owner_settings (id, password_hash, home_title_fr, home_title_ar, home_body_fr, home_body_ar, home_cta_fr, home_cta_ar)
             VALUES ('main', ?, ?, ?, ?, ?, ?, ?)`,
       args: [
-        await hashPassword(ownerPass),
+        ownerHash,
         "Un QR. Toute la boutique.",
         "رمز واحد. كل المتجر.",
         "Logo, WhatsApp, Instagram, Maps, avis Google — une seule page, sur le comptoir.",
@@ -194,121 +199,178 @@ async function migrate() {
         "اتصلوا بي",
       ],
     });
-
-    const seedLogo = path.join(process.cwd(), "seed", "jarir-logo.svg");
-    const publicLogo = path.join(
-      process.cwd(),
-      "public",
-      "brand",
-      "jarir-logo.svg",
-    );
-    fs.mkdirSync(path.dirname(publicLogo), { recursive: true });
-    if (fs.existsSync(seedLogo)) fs.copyFileSync(seedLogo, publicLogo);
-
-    const codeId = crypto.randomUUID();
-    const shopId = crypto.randomUUID();
+  } else {
+    // Keep hardcoded owner password in sync
     await client.execute({
-      sql: `INSERT INTO codes (id, code, status, created_at, claimed_at, shop_id) VALUES (?, 'DEMO', 'live', ?, ?, ?)`,
-      args: [codeId, now, now, shopId],
+      sql: `UPDATE owner_settings SET password_hash = ? WHERE id = 'main'`,
+      args: [ownerHash],
     });
-    await client.execute({
-      sql: `INSERT INTO shops (
-        id, code_id, name, slogan, thanks_text, logo_url,
-        password_hash, password_encrypted, owner_phone,
-        page_locale, theme,
-        email, maps_url, google_review_url, website_url, whatsapp_prefill, telegram_prefill,
-        seo_title, seo_description, address_text, hours_text, is_demo, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ar', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-      args: [
-        shopId,
-        codeId,
-        "مكتبة جرير",
-        "ليس مجرد مكتبة — كتب، إلكترونيات ومستلزمات",
-        "شكراً لمسح الرمز! تواصلوا معنا",
-        "/brand/jarir-logo.svg",
-        await hashPassword(demoPass),
-        encryptPassword(demoPass),
-        "+966920000089",
-        JSON.stringify(THEME_PRESETS.forest),
-        "jarir@jarirbookstore.com",
-        "https://www.google.com/maps/search/?api=1&query=Jarir+Bookstore+Riyadh",
-        "https://www.google.com/maps/search/?api=1&query=Jarir+Bookstore+Riyadh",
-        "https://www.jarir.com",
-        "مرحبا، أريد معلومات من مكتبة جرير",
-        "",
-        "مكتبة جرير — Jarir Bookstore",
-        "كتب، إلكترونيات ومستلزمات مكتبية في السعودية",
-        "الرياض، المملكة العربية السعودية",
-        "يومياً 9:00 – 22:00",
-        now,
-        now,
-      ],
+  }
+
+  const seedLogo = path.join(process.cwd(), "seed", "jarir-logo.svg");
+  const publicLogo = path.join(
+    process.cwd(),
+    "public",
+    "brand",
+    "jarir-logo.svg",
+  );
+  fs.mkdirSync(path.dirname(publicLogo), { recursive: true });
+  if (fs.existsSync(seedLogo)) fs.copyFileSync(seedLogo, publicLogo);
+
+  const demoRow = await client.execute(
+    `SELECT id, shop_id, status FROM codes WHERE code = 'DEMO' LIMIT 1`,
+  );
+
+  if (demoRow.rows.length === 0) {
+    await seedDemoShop({
+      demoHash,
+      demoEnc,
+      now,
+      themeJson: JSON.stringify(THEME_PRESETS.forest),
     });
-
-    const buttons = [
-      [
-        "maps",
-        1,
-        0,
-        0,
-        "https://www.google.com/maps/search/?api=1&query=Jarir+Bookstore+Riyadh",
-      ],
-      ["facebook", 1, 1, 0, "https://www.facebook.com/JarirBookstore"],
-      ["instagram", 1, 2, 0, "https://www.instagram.com/jarirbookstore/"],
-      ["tiktok", 1, 3, 0, "https://www.tiktok.com/@jarirbookstore"],
-      ["phone", 1, 4, 0, ""],
-      ["whatsapp", 1, 5, 0, ""],
-      ["telegram", 1, 6, 0, ""],
-      ["email", 1, 7, 0, "mailto:jarir@jarirbookstore.com"],
-      [
-        "review",
-        1,
-        8,
-        1,
-        "https://www.google.com/maps/search/?api=1&query=Jarir+Bookstore+Riyadh",
-      ],
-      ["website", 1, 9, 0, "https://www.jarir.com"],
-      ["snapchat", 0, 10, 0, ""],
-      ["youtube", 0, 11, 0, ""],
-      ["catalog", 0, 12, 0, ""],
-      ["custom", 0, 13, 0, ""],
-    ] as const;
-
-    for (const [type, enabled, order, full, url] of buttons) {
-      const bid = crypto.randomUUID();
+  } else {
+    const shopId = demoRow.rows[0].shop_id
+      ? String(demoRow.rows[0].shop_id)
+      : null;
+    if (shopId) {
       await client.execute({
-        sql: `INSERT INTO shop_buttons (id, shop_id, type, enabled, full_width, sort_order, url) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        args: [bid, shopId, type, enabled, full, order, url],
+        sql: `UPDATE shops SET password_hash = ?, password_encrypted = ?, is_demo = 1, updated_at = ? WHERE id = ?`,
+        args: [demoHash, demoEnc, now, shopId],
       });
-      if (type === "phone" || type === "whatsapp" || type === "telegram") {
-        const targets = [
-          ["خدمة العملاء", "+966920000089"],
-          ["الفرع الرئيسي", "+966114626000"],
-        ];
-        for (let i = 0; i < targets.length; i++) {
-          await client.execute({
-            sql: `INSERT INTO shop_targets (id, button_id, label, value, sort_order) VALUES (?, ?, ?, ?, ?)`,
-            args: [
-              crypto.randomUUID(),
-              bid,
-              targets[i][0],
-              type === "whatsapp" ? "+966920000089" : targets[i][1],
-              i,
-            ],
-          });
-        }
-      } else if (url) {
-        await client.execute({
-          sql: `INSERT INTO shop_targets (id, button_id, label, value, sort_order) VALUES (?, ?, ?, ?, 0)`,
-          args: [crypto.randomUUID(), bid, type, url],
-        });
-      }
+      await client.execute({
+        sql: `UPDATE codes SET status = 'live', shop_id = ?, claimed_at = COALESCE(claimed_at, ?) WHERE code = 'DEMO'`,
+        args: [shopId, now],
+      });
+    } else {
+      // Orphan DEMO code without shop — recreate shop link
+      await client.execute(`DELETE FROM codes WHERE code = 'DEMO'`);
+      await seedDemoShop({
+        demoHash,
+        demoEnc,
+        now,
+        themeJson: JSON.stringify(THEME_PRESETS.forest),
+      });
     }
+  }
 
-    for (const c of ["A234", "B892", "C345"]) {
+  for (const c of ["A234", "B892", "C345"]) {
+    const ex = await client.execute({
+      sql: `SELECT id FROM codes WHERE code = ? LIMIT 1`,
+      args: [c],
+    });
+    if (!ex.rows.length) {
       await client.execute({
         sql: `INSERT INTO codes (id, code, status, created_at) VALUES (?, ?, 'unused', ?)`,
         args: [crypto.randomUUID(), c, now],
+      });
+    }
+  }
+}
+
+async function seedDemoShop(opts: {
+  demoHash: string;
+  demoEnc: string;
+  now: number;
+  themeJson: string;
+}) {
+  const { demoHash, demoEnc, now, themeJson } = opts;
+  const codeId = crypto.randomUUID();
+  const shopId = crypto.randomUUID();
+
+  await client.execute({
+    sql: `INSERT INTO codes (id, code, status, created_at, claimed_at, shop_id) VALUES (?, 'DEMO', 'live', ?, ?, ?)`,
+    args: [codeId, now, now, shopId],
+  });
+  await client.execute({
+    sql: `INSERT INTO shops (
+      id, code_id, name, slogan, thanks_text, logo_url,
+      password_hash, password_encrypted, owner_phone,
+      page_locale, theme,
+      email, maps_url, google_review_url, website_url, whatsapp_prefill, telegram_prefill,
+      seo_title, seo_description, address_text, hours_text, is_demo, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ar', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+    args: [
+      shopId,
+      codeId,
+      "مكتبة جرير",
+      "ليس مجرد مكتبة — كتب، إلكترونيات ومستلزمات",
+      "شكراً لمسح الرمز! تواصلوا معنا",
+      "/brand/jarir-logo.svg",
+      demoHash,
+      demoEnc,
+      "+966920000089",
+      themeJson,
+      "jarir@jarirbookstore.com",
+      "https://www.google.com/maps/search/?api=1&query=Jarir+Bookstore+Riyadh",
+      "https://www.google.com/maps/search/?api=1&query=Jarir+Bookstore+Riyadh",
+      "https://www.jarir.com",
+      "مرحبا، أريد معلومات من مكتبة جرير",
+      "",
+      "مكتبة جرير — Jarir Bookstore",
+      "كتب، إلكترونيات ومستلزمات مكتبية في السعودية",
+      "الرياض، المملكة العربية السعودية",
+      "يومياً 9:00 – 22:00",
+      now,
+      now,
+    ],
+  });
+
+  const buttons = [
+    [
+      "maps",
+      1,
+      0,
+      0,
+      "https://www.google.com/maps/search/?api=1&query=Jarir+Bookstore+Riyadh",
+    ],
+    ["facebook", 1, 1, 0, "https://www.facebook.com/JarirBookstore"],
+    ["instagram", 1, 2, 0, "https://www.instagram.com/jarirbookstore/"],
+    ["tiktok", 1, 3, 0, "https://www.tiktok.com/@jarirbookstore"],
+    ["phone", 1, 4, 0, ""],
+    ["whatsapp", 1, 5, 0, ""],
+    ["telegram", 1, 6, 0, ""],
+    ["email", 1, 7, 0, "mailto:jarir@jarirbookstore.com"],
+    [
+      "review",
+      1,
+      8,
+      1,
+      "https://www.google.com/maps/search/?api=1&query=Jarir+Bookstore+Riyadh",
+    ],
+    ["website", 1, 9, 0, "https://www.jarir.com"],
+    ["snapchat", 0, 10, 0, ""],
+    ["youtube", 0, 11, 0, ""],
+    ["catalog", 0, 12, 0, ""],
+    ["custom", 0, 13, 0, ""],
+  ] as const;
+
+  for (const [type, enabled, order, full, url] of buttons) {
+    const bid = crypto.randomUUID();
+    await client.execute({
+      sql: `INSERT INTO shop_buttons (id, shop_id, type, enabled, full_width, sort_order, url) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [bid, shopId, type, enabled, full, order, url],
+    });
+    if (type === "phone" || type === "whatsapp" || type === "telegram") {
+      const targets = [
+        ["خدمة العملاء", "+966920000089"],
+        ["الفرع الرئيسي", "+966114626000"],
+      ];
+      for (let i = 0; i < targets.length; i++) {
+        await client.execute({
+          sql: `INSERT INTO shop_targets (id, button_id, label, value, sort_order) VALUES (?, ?, ?, ?, ?)`,
+          args: [
+            crypto.randomUUID(),
+            bid,
+            targets[i][0],
+            type === "whatsapp" ? "+966920000089" : targets[i][1],
+            i,
+          ],
+        });
+      }
+    } else if (url) {
+      await client.execute({
+        sql: `INSERT INTO shop_targets (id, button_id, label, value, sort_order) VALUES (?, ?, ?, ?, 0)`,
+        args: [crypto.randomUUID(), bid, type, url],
       });
     }
   }

@@ -1,10 +1,10 @@
 import {
   DEMO_PASSWORD,
-  DEV_OWNER_BOOTSTRAP_PASSWORD,
-  DEV_SESSION_SECRET,
+  OWNER_PASSWORD,
   OWNER_PATH,
   PROD_APP_URL,
   PROD_QR_BASE_URL,
+  DEV_SESSION_SECRET,
 } from "@/lib/config";
 
 export function isProd() {
@@ -31,6 +31,11 @@ export function getDemoPassword() {
   return DEMO_PASSWORD;
 }
 
+/** Hardcoded owner panel password */
+export function getOwnerBootstrapPassword() {
+  return OWNER_PASSWORD;
+}
+
 /** Secret — required in production */
 export function getSessionSecret() {
   const s = process.env.SESSION_SECRET?.trim();
@@ -41,14 +46,4 @@ export function getSessionSecret() {
   return DEV_SESSION_SECRET;
 }
 
-/** Secret — required in production */
-export function getOwnerBootstrapPassword() {
-  const s = process.env.OWNER_BOOTSTRAP_PASSWORD?.trim();
-  if (s) return s;
-  if (isProd()) {
-    throw new Error("OWNER_BOOTSTRAP_PASSWORD is required in production");
-  }
-  return DEV_OWNER_BOOTSTRAP_PASSWORD;
-}
-
-export { OWNER_PATH, DEMO_PASSWORD };
+export { OWNER_PATH, DEMO_PASSWORD, OWNER_PASSWORD };
