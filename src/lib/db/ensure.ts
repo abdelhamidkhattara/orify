@@ -207,15 +207,22 @@ async function ensureSeedData() {
     });
   }
 
-  const seedLogo = path.join(process.cwd(), "seed", "jarir-logo.svg");
-  const publicLogo = path.join(
-    process.cwd(),
-    "public",
-    "brand",
-    "jarir-logo.svg",
-  );
-  fs.mkdirSync(path.dirname(publicLogo), { recursive: true });
-  if (fs.existsSync(seedLogo)) fs.copyFileSync(seedLogo, publicLogo);
+  // Logo ships in public/brand — never write on Vercel (read-only FS).
+  try {
+    const seedLogo = path.join(process.cwd(), "seed", "jarir-logo.svg");
+    const publicLogo = path.join(
+      process.cwd(),
+      "public",
+      "brand",
+      "jarir-logo.svg",
+    );
+    if (fs.existsSync(seedLogo) && !fs.existsSync(publicLogo)) {
+      fs.mkdirSync(path.dirname(publicLogo), { recursive: true });
+      fs.copyFileSync(seedLogo, publicLogo);
+    }
+  } catch {
+    /* ignore on serverless */
+  }
 
   const demoRow = await client.execute(
     `SELECT id, shop_id, status FROM codes WHERE code = 'DEMO' LIMIT 1`,
