@@ -8,6 +8,8 @@ import type { Metadata } from "next";
 import { LangSwitch } from "@/components/lang-switch";
 import { Card } from "@/components/ui/card";
 import { ensureDb } from "@/lib/db/ensure";
+import { buildShopShare, shopShareMetadata } from "@/lib/shop-share";
+import { normalizeCode } from "@/lib/codes";
 
 type Props = {
   params: Promise<{ code: string }>;
@@ -16,29 +18,27 @@ type Props = {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   await ensureDb();
-  const { code } = await params;
+  const { code: raw } = await params;
+  const code = normalizeCode(raw);
   const data = await getByCode(code);
-  if (!data?.shop) {
-    return { title: "Orify" };
-  }
+  const share = buildShopShare(code, data);
+
   return {
-    title: data.shop.seoTitle || data.shop.name,
-    description: data.shop.seoDescription || data.shop.slogan || undefined,
-    openGraph: {
-      title: data.shop.seoTitle || data.shop.name,
-      description: data.shop.seoDescription || data.shop.slogan || undefined,
-      images: data.shop.logoUrl ? [data.shop.logoUrl] : undefined,
-    },
+    ...shopShareMetadata(share),
+    robots:
+      share.kind === "live"
+        ? { index: true, follow: true }
+        : { index: false, follow: true },
   };
 }
 
 export default async function CodePage({ params, searchParams }: Props) {
   await ensureDb();
-  const { code } = await params;
+  const { code: raw } = await params;
+  const code = normalizeCode(raw);
   const sp = await searchParams;
   const data = await getByCode(code);
 
-  // Reserved paths should not hit here in theory
   const reserved = [
     "owner",
     "seller",
@@ -56,21 +56,11 @@ export default async function CodePage({ params, searchParams }: Props) {
   const messages = getMessages(locale);
 
   if (!data) {
-    return (
-      <SoftMessage
-        text={messages.shop.unknown}
-        locale={locale}
-      />
-    );
+    return <SoftMessage text={messages.shop.unknown} locale={locale} />;
   }
 
   if (data.status === "disabled") {
-    return (
-      <SoftMessage
-        text={messages.shop.inactive}
-        locale={locale}
-      />
-    );
+    return <SoftMessage text={messages.shop.inactive} locale={locale} />;
   }
 
   if (data.status === "unused" || !data.shop) {
