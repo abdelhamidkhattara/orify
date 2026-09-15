@@ -25,7 +25,7 @@ import {
 import { qrLink } from "@/lib/utils";
 import { OWNER_PATH } from "@/lib/config";
 import { effectiveTargets, isPhoneLike } from "@/lib/shop-buttons";
-import { prepareImageForUpload } from "@/lib/prepare-image";
+import { prepareLogoForUpload } from "@/lib/prepare-image";
 import {
   DndContext,
   closestCenter,
@@ -169,6 +169,10 @@ export function ShopAdminShell({
         needLink: "أضف رابطاً أولاً",
         uploading: "جاري رفع الشعار…",
         uploadFail: "فشل رفع الشعار",
+        uploadType: "اختر صورة (JPG / PNG / WebP / SVG)",
+        uploadBig: "الصورة كبيرة جداً",
+        uploadDecode: "تعذر قراءة الصورة — جرّب صورة أخرى",
+        uploadSaveFail: "رُفع الشعار لكن الحفظ فشل — اضغط حفظ",
         moveUp: "أعلى",
         moveDown: "أسفل",
       }
@@ -186,6 +190,10 @@ export function ShopAdminShell({
         needLink: "Ajoutez un lien d’abord",
         uploading: "Envoi du logo…",
         uploadFail: "Échec de l’envoi du logo",
+        uploadType: "Choisissez une image (JPG / PNG / WebP / SVG)",
+        uploadBig: "Image trop lourde",
+        uploadDecode: "Image illisible — essayez un autre fichier",
+        uploadSaveFail: "Logo envoyé mais non enregistré — touchez Enregistrer",
         moveUp: "Monter",
         moveDown: "Descendre",
       };
@@ -246,26 +254,62 @@ export function ShopAdminShell({
   async function onLogoFile(file: File) {
     setToast(labels.uploading);
     try {
-      const prepared = await prepareImageForUpload(file);
+      const prepared = await prepareLogoForUpload(file);
+      if (!prepared.ok) {
+        const map = {
+          empty: labels.uploadFail,
+          type: labels.uploadType,
+          too_large: labels.uploadBig,
+          decode: labels.uploadDecode,
+        } as const;
+        setToast(map[prepared.code]);
+        return;
+      }
+
       const fd = new FormData();
-      fd.set("file", prepared);
+      fd.set("file", prepared.file);
       fd.set("code", code);
+      if (
+        identity.logoUrl &&
+        (identity.logoUrl.includes("blob.vercel-storage.com") ||
+          identity.logoUrl.startsWith("/uploads/"))
+      ) {
+        fd.set("replaceUrl", identity.logoUrl);
+      }
+
       const res = await fetch("/api/upload", { method: "POST", body: fd });
-      const json = (await res.json()) as { url?: string; error?: string };
+      let json: { url?: string; error?: string } = {};
+      try {
+        json = (await res.json()) as { url?: string; error?: string };
+      } catch {
+        setToast(labels.uploadFail);
+        return;
+      }
       if (!res.ok || !json.url) {
         setToast(json.error || labels.uploadFail);
         return;
       }
+
       const nextIdentity = { ...identity, logoUrl: json.url };
       setIdentity(nextIdentity);
       start(async () => {
-        await updateShopIdentity(code, {
-          ...nextIdentity,
-          logoUrl: json.url || null,
-        });
-        setDirtyPage(false);
-        setToast(labels.saved);
-        router.refresh();
+        try {
+          const saved = await updateShopIdentity(code, {
+            ...nextIdentity,
+            logoUrl: json.url || null,
+          });
+          if (!saved?.ok) {
+            setDirtyPage(true);
+            setToast(labels.uploadSaveFail);
+            return;
+          }
+          setDirtyPage(false);
+          setToast(labels.saved);
+          router.refresh();
+        } catch {
+          setDirtyPage(true);
+          setToast(labels.uploadSaveFail);
+        }
       });
     } catch {
       setToast(labels.uploadFail);
@@ -335,12 +379,15 @@ export function ShopAdminShell({
               )}
               <input
                 type="file"
-                accept="image/*"
+                accept="image/*,.svg,image/svg+xml"
                 capture="environment"
                 className="hidden"
                 onChange={(e) => {
-                  const f = e.target.files?.[0];
+                  const input = e.currentTarget;
+                  const f = input.files?.[0];
                   if (f) void onLogoFile(f);
+                  // Allow re-selecting the same file
+                  input.value = "";
                 }}
               />
             </label>

@@ -10,6 +10,7 @@ import {
 } from "@/lib/shop-buttons";
 import { getMessages } from "@/lib/i18n";
 import { ShopSheetBridge } from "@/components/shop/shop-sheet-bridge";
+import { ShopLogo } from "@/components/shop/shop-logo";
 
 type Target = { id: string; label: string; value: string };
 type Button = {
@@ -85,15 +86,14 @@ export function ShopPublicCard(props: Props) {
         }}
       >
         {logoUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <ShopLogo
             src={logoUrl}
             alt={name}
             width={280}
             height={160}
+            priority
             className="mx-auto mb-4 h-auto w-[min(280px,70%)] object-contain"
             style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.2))" }}
-            fetchPriority="high"
           />
         )}
 
