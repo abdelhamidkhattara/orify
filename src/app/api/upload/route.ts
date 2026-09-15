@@ -23,14 +23,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Max 2MB" }, { status: 400 });
   }
 
-  // Local upload fallback (Vercel Blob when token present)
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
+  const token = process.env.BLOB_READ_WRITE_TOKEN?.trim();
+  if (token) {
     const { put } = await import("@vercel/blob");
-    const blob = await put(`shops/${newId()}-${file.name}`, file, {
+    const safeName = file.name.replace(/[^\w.\-]+/g, "_").slice(0, 80);
+    const blob = await put(`shops/${newId()}-${safeName}`, file, {
       access: "public",
-      token: process.env.BLOB_READ_WRITE_TOKEN,
+      token,
+      addRandomSuffix: true,
     });
     return NextResponse.json({ url: blob.url });
+  }
+
+  // Production (Vercel) cannot write to the filesystem — Blob is required.
+  if (process.env.VERCEL || process.env.NODE_ENV === "production") {
+    return NextResponse.json(
+      {
+        error:
+          "BLOB_READ_WRITE_TOKEN missing. Create a Vercel Blob store and link it to this project.",
+      },
+      { status: 503 },
+    );
   }
 
   const buf = Buffer.from(await file.arrayBuffer());

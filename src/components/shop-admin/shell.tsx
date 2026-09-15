@@ -25,10 +25,12 @@ import {
 import { qrLink } from "@/lib/utils";
 import { OWNER_PATH } from "@/lib/config";
 import { effectiveTargets, isPhoneLike } from "@/lib/shop-buttons";
+import { prepareImageForUpload } from "@/lib/prepare-image";
 import {
   DndContext,
   closestCenter,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -40,7 +42,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Eye, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, GripVertical, Eye, Trash2 } from "lucide-react";
 
 type Shop = {
   id: string;
@@ -134,7 +136,10 @@ export function ShopAdminShell({
   const [pwd, setPwd] = useState({ a: "", b: "" });
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 220, tolerance: 10 },
+    }),
   );
 
   const enabled = useMemo(
@@ -162,6 +167,10 @@ export function ShopAdminShell({
         help: "وضع المساعدة",
         backOwner: "العودة للوحة",
         needLink: "أضف رابطاً أولاً",
+        uploading: "جاري رفع الشعار…",
+        uploadFail: "فشل رفع الشعار",
+        moveUp: "أعلى",
+        moveDown: "أسفل",
       }
     : {
         page: "Page",
@@ -175,7 +184,33 @@ export function ShopAdminShell({
         help: "Mode aide",
         backOwner: "Retour au tableau",
         needLink: "Ajoutez un lien d’abord",
+        uploading: "Envoi du logo…",
+        uploadFail: "Échec de l’envoi du logo",
+        moveUp: "Monter",
+        moveDown: "Descendre",
       };
+
+  function applyOrder(nextEnabled: ButtonRow[]) {
+    setButtons([
+      ...nextEnabled.map((b, i) => ({ ...b, sortOrder: i })),
+      ...disabled,
+    ]);
+    start(async () => {
+      await reorderButtons(
+        code,
+        nextEnabled.map((b) => b.id),
+      );
+      setToast(labels.saved);
+    });
+  }
+
+  function moveEnabled(id: string, dir: -1 | 1) {
+    const ids = enabled.map((b) => b.id);
+    const oldIndex = ids.indexOf(id);
+    const newIndex = oldIndex + dir;
+    if (oldIndex < 0 || newIndex < 0 || newIndex >= ids.length) return;
+    applyOrder(arrayMove(enabled, oldIndex, newIndex));
+  }
 
   function savePage() {
     start(async () => {
@@ -204,29 +239,36 @@ export function ShopAdminShell({
     const ids = enabled.map((b) => b.id);
     const oldIndex = ids.indexOf(String(active.id));
     const newIndex = ids.indexOf(String(over.id));
-    const next = arrayMove(enabled, oldIndex, newIndex);
-    setButtons([
-      ...next.map((b, i) => ({ ...b, sortOrder: i })),
-      ...disabled,
-    ]);
-    start(async () => {
-      await reorderButtons(
-        code,
-        next.map((b) => b.id),
-      );
-      setToast(labels.saved);
-    });
+    if (oldIndex < 0 || newIndex < 0) return;
+    applyOrder(arrayMove(enabled, oldIndex, newIndex));
   }
 
   async function onLogoFile(file: File) {
-    const fd = new FormData();
-    fd.set("file", file);
-    fd.set("code", code);
-    const res = await fetch("/api/upload", { method: "POST", body: fd });
-    const json = await res.json();
-    if (json.url) {
-      setIdentity((s) => ({ ...s, logoUrl: json.url }));
-      setDirtyPage(true);
+    setToast(labels.uploading);
+    try {
+      const prepared = await prepareImageForUpload(file);
+      const fd = new FormData();
+      fd.set("file", prepared);
+      fd.set("code", code);
+      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      const json = (await res.json()) as { url?: string; error?: string };
+      if (!res.ok || !json.url) {
+        setToast(json.error || labels.uploadFail);
+        return;
+      }
+      const nextIdentity = { ...identity, logoUrl: json.url };
+      setIdentity(nextIdentity);
+      start(async () => {
+        await updateShopIdentity(code, {
+          ...nextIdentity,
+          logoUrl: json.url || null,
+        });
+        setDirtyPage(false);
+        setToast(labels.saved);
+        router.refresh();
+      });
+    } catch {
+      setToast(labels.uploadFail);
     }
   }
 
@@ -431,8 +473,8 @@ export function ShopAdminShell({
           <div className="flex flex-col gap-4">
             <p className="text-[13px] text-muted">
               {isAr
-                ? "اسحب للترتيب · اضغط للتعديل · أضف عدة حسابات لكل زر"
-                : "Glissez pour trier · Touchez pour éditer · Plusieurs liens par bouton"}
+                ? "▲▼ للترتيب على الهاتف · اضغط للتعديل · عدة روابط لكل زر"
+                : "▲▼ pour trier sur téléphone · Touchez pour éditer · Plusieurs liens"}
             </p>
             <DndContext
               sensors={sensors}
@@ -444,11 +486,17 @@ export function ShopAdminShell({
                 strategy={verticalListSortingStrategy}
               >
                 <div className="flex flex-col gap-2">
-                  {enabled.map((b) => (
+                  {enabled.map((b, index) => (
                     <SortableButtonRow
                       key={b.id}
                       button={b}
                       isAr={isAr}
+                      canUp={index > 0}
+                      canDown={index < enabled.length - 1}
+                      moveUpLabel={labels.moveUp}
+                      moveDownLabel={labels.moveDown}
+                      onMoveUp={() => moveEnabled(b.id, -1)}
+                      onMoveDown={() => moveEnabled(b.id, 1)}
                       onEdit={() => setEditBtn(b)}
                       onDisable={() => {
                         start(async () => {
@@ -458,6 +506,7 @@ export function ShopAdminShell({
                               x.id === b.id ? { ...x, enabled: false } : x,
                             ),
                           );
+                          setToast(labels.saved);
                         });
                       }}
                     />
@@ -705,10 +754,46 @@ export function ShopAdminShell({
           onSave={(data) => {
             start(async () => {
               const res = await updateButton(code, editBtn.id, data);
-              if (res.ok && "error" in res && res.error === "empty") {
+              if (!res.ok) {
                 setToast(labels.needLink);
                 return;
               }
+              if ("disabled" in res && res.disabled) {
+                setButtons((prev) =>
+                  prev.map((x) =>
+                    x.id === editBtn.id
+                      ? { ...x, enabled: false, url: "", targets: [] }
+                      : x,
+                  ),
+                );
+                setEditBtn(null);
+                setToast(labels.saved);
+                return;
+              }
+              const cleaned = data.targets.filter((t) => t.value.trim());
+              setButtons((prev) => {
+                const maxOrder = Math.max(
+                  0,
+                  ...prev.filter((b) => b.enabled).map((b) => b.sortOrder),
+                );
+                return prev.map((x) =>
+                  x.id === editBtn.id
+                    ? {
+                        ...x,
+                        enabled: true,
+                        label: data.label ?? x.label,
+                        fullWidth: data.fullWidth ?? x.fullWidth,
+                        url: cleaned[0]?.value ?? "",
+                        sortOrder: x.enabled ? x.sortOrder : maxOrder + 1,
+                        targets: cleaned.map((t, i) => ({
+                          id: x.targets[i]?.id ?? `local-${editBtn.id}-${i}`,
+                          label: t.label || t.value,
+                          value: t.value,
+                        })),
+                      }
+                    : x,
+                );
+              });
               setEditBtn(null);
               setToast(labels.saved);
               router.refresh();
@@ -757,14 +842,26 @@ function SortableButtonRow({
   button,
   onEdit,
   onDisable,
+  onMoveUp,
+  onMoveDown,
+  canUp,
+  canDown,
+  moveUpLabel,
+  moveDownLabel,
   isAr,
 }: {
   button: ButtonRow;
   onEdit: () => void;
   onDisable: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  canUp: boolean;
+  canDown: boolean;
+  moveUpLabel: string;
+  moveDownLabel: string;
   isAr: boolean;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition } =
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: button.id });
   const targets = effectiveTargets(button);
   const title = (isAr ? TYPE_LABELS_AR : TYPE_LABELS_FR)[button.type] || button.type;
@@ -775,11 +872,33 @@ function SortableButtonRow({
         transform: CSS.Transform.toString(transform),
         transition,
       }}
-      className="flex min-h-[56px] items-center gap-2 rounded-[14px] border border-line bg-surface pe-1 ps-1"
+      className={`flex min-h-[56px] items-center gap-1 rounded-[14px] border border-line bg-surface pe-1 ps-1 ${
+        isDragging ? "z-10 opacity-90 shadow-md" : ""
+      }`}
     >
+      <div className="flex shrink-0 flex-col">
+        <button
+          type="button"
+          className="inline-flex h-8 w-10 items-center justify-center rounded-t-lg text-muted disabled:opacity-25"
+          disabled={!canUp}
+          onClick={onMoveUp}
+          aria-label={moveUpLabel}
+        >
+          <ChevronUp className="h-5 w-5" />
+        </button>
+        <button
+          type="button"
+          className="inline-flex h-8 w-10 items-center justify-center rounded-b-lg text-muted disabled:opacity-25"
+          disabled={!canDown}
+          onClick={onMoveDown}
+          aria-label={moveDownLabel}
+        >
+          <ChevronDown className="h-5 w-5" />
+        </button>
+      </div>
       <button
         type="button"
-        className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl text-muted"
+        className="hidden min-h-11 min-w-11 shrink-0 touch-none items-center justify-center rounded-xl text-muted sm:inline-flex"
         {...attributes}
         {...listeners}
         aria-label="Reorder"

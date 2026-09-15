@@ -132,6 +132,7 @@ export async function updateShopInfos(
     .where(eq(shops.id, ctx.data.shop!.id));
 
   revalidatePath(`/${code}`);
+  revalidatePath(`/${code}/admin`);
   return { ok: true as const };
 }
 
@@ -191,6 +192,7 @@ export async function reorderButtons(code: string, orderedIds: string[]) {
       .where(eq(shopButtons.id, orderedIds[i]));
   }
   revalidatePath(`/${code}`);
+  revalidatePath(`/${code}/admin`);
   return { ok: true as const };
 }
 
