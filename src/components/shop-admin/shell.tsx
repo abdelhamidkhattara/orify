@@ -471,11 +471,6 @@ export function ShopAdminShell({
 
         {tab === "buttons" && (
           <div className="flex flex-col gap-4">
-            <p className="text-[13px] text-muted">
-              {isAr
-                ? "▲▼ للترتيب على الهاتف · اضغط للتعديل · عدة روابط لكل زر"
-                : "▲▼ pour trier sur téléphone · Touchez pour éditer · Plusieurs liens"}
-            </p>
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}
